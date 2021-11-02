@@ -11,6 +11,7 @@ import (
 
 	telegram "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/laouji/b4t/pkg/listener"
+	"github.com/laouji/b4t/pkg/reaction"
 )
 
 var (
@@ -34,19 +35,26 @@ func main() {
 		fmt.Printf("ERROR %s", err)
 		os.Exit(1)
 	}
-	log.Printf("connected as bot user %q ver %s", client.Self.UserName, version)
+	log.Printf("connected as bot user %q, bot version %q", client.Self.UserName, version)
 
 	l, err := listener.NewListener(client, conf.pollingTimeout)
 	if err != nil {
 		fmt.Printf("ERROR %s", err)
 		os.Exit(1)
 	}
+	registerReacters(client, l)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
 	log.Println("listener started")
 	l.Listen(ctx)
+}
+
+func registerReacters(client *telegram.BotAPI, l *listener.Listener) {
+	l.RegisterReacters(
+		reaction.NewOnboarder(client),
+	)
 }
 
 func parseArgs() (conf config, err error) {
