@@ -3,7 +3,6 @@ package reaction
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	telegram "github.com/go-telegram-bot-api/telegram-bot-api"
