@@ -30,11 +30,15 @@ func NewListener(client *telegram.BotAPI, timeout time.Duration) (l *Listener, e
 	}, nil
 }
 
-func (l *Listener) RegisterReacters(reacters ...reaction.Reacter) {
+func (l *Listener) RegisterReacters(reacters ...reaction.Reacter) error {
 	for _, r := range reacters {
+		if err := r.Load(); err != nil {
+			return fmt.Errorf("failed to load reactor %q: %w", r.Name(), err)
+		}
 		log.Printf("registered reactor %q", r.Name())
 		l.reacters = append(l.reacters, r)
 	}
+	return nil
 }
 
 func (l *Listener) Listen(ctx context.Context) {
@@ -53,11 +57,8 @@ func (l *Listener) Listen(ctx context.Context) {
 }
 
 func (l *Listener) handleUpdate(ctx context.Context, update telegram.Update) error {
+	log.Printf("UPDATE: %+v", update)
 	for _, r := range l.reacters {
-		if !r.ShouldReact(ctx, update) {
-			continue
-		}
-
 		if err := r.React(ctx, update); err != nil {
 			return fmt.Errorf("reacter %q failed to react to update with err: %w", r.Name(), err)
 		}
