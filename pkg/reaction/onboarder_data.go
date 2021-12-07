@@ -2,8 +2,11 @@ package reaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	redis "github.com/go-redis/redis/v8"
 )
 
 var (
@@ -34,7 +37,7 @@ func (r *Onboarder) removeHangingMessage(ctx context.Context, messageID int) err
 func (r *Onboarder) isHangingMessage(ctx context.Context, messageID int) (exists bool, err error) {
 	key := fmt.Sprintf(onboarderKeyHangingMessages, r.groupChat.ID, messageID)
 	val, err := r.rdb.Get(ctx, key).Result()
-	if err != nil {
+	if err != nil && !errors.Is(err, redis.Nil) {
 		return false, err
 	}
 	return val != "", nil
@@ -76,12 +79,13 @@ func (r *Onboarder) setAnswer(
 func (r *Onboarder) getMembershipPending(
 	ctx context.Context,
 	username string,
-) error {
+) (bool, error) {
 	key := fmt.Sprintf(onboarderKeyMembershipPending, username)
-	if err := r.rdb.Get(ctx, key).Err(); err != nil {
-		return err
+	res, err := r.rdb.Get(ctx, key).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return false, err
 	}
-	return nil
+	return res != "", nil
 }
 
 func (r *Onboarder) setMembershipPending(

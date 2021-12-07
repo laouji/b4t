@@ -20,6 +20,7 @@ const (
 	// TODO make these configurable
 	onboarderConvoGreeting = "Hi @%s! Would you like to join %s?"
 	onboarderConvoEnd      = "OK, goodbye."
+	onboarderConvoPending  = "Your application is pending. Please be patient."
 )
 
 type (
@@ -91,7 +92,24 @@ func (r *Onboarder) React(ctx context.Context, update telegram.Update) error {
 		return nil
 	}
 
-	if err := r.handleReply(ctx, msg); err != nil {
+	// check if this is someone we know about already
+	pending, err := r.getMembershipPending(ctx, msg.From.UserName)
+	if err != nil {
+		return err
+	}
+
+	if pending {
+		reply := telegram.NewMessage(msg.Chat.ID, onboarderConvoPending)
+		reply.ReplyToMessageID = msg.MessageID
+		_, err := r.client.Send(reply)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if handledReply, err := r.handleReply(ctx, msg); handledReply {
+		// exit early since we've already sent something back to the user
 		return err
 	}
 
@@ -165,26 +183,26 @@ func (r *Onboarder) handleCallback(ctx context.Context, update telegram.Update) 
 	return nil
 }
 
-func (r *Onboarder) handleReply(ctx context.Context, msg *telegram.Message) error {
+func (r *Onboarder) handleReply(ctx context.Context, msg *telegram.Message) (bool, error) {
 	if msg == nil {
-		return fmt.Errorf("message should not be nil in reply check")
+		return false, fmt.Errorf("message should not be nil in reply check")
 	}
 
 	gotReply := msg.ReplyToMessage
 	if gotReply == nil {
-		return nil
+		return false, nil
 	}
 
 	log.Printf("GOT REPLY: %+v", gotReply)
 	isHanging, err := r.isHangingMessage(ctx, gotReply.MessageID)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if isHanging {
 		answers, err := r.getAnswers(ctx, msg.From.UserName)
 		if err != nil {
-			return err
+			return false, err
 		}
 		log.Printf("ALL ANSWERS %s", answers)
 
@@ -200,7 +218,7 @@ func (r *Onboarder) handleReply(ctx context.Context, msg *telegram.Message) erro
 			// check if this is the last question
 			if len(answers) >= len(r.questions) {
 				reply = telegram.NewMessage(msg.Chat.ID, onboarderConvoEnd)
-				r.setMembershipPending(ctx, gotReply.From.UserName)
+				r.setMembershipPending(ctx, msg.From.UserName)
 			} else {
 				shouldAddHanging = true
 				reply = telegram.NewMessage(msg.Chat.ID, r.questions[len(answers)])
@@ -214,19 +232,19 @@ func (r *Onboarder) handleReply(ctx context.Context, msg *telegram.Message) erro
 		}
 		sentMsg, err := r.client.Send(reply)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		if shouldAddHanging {
 			if err := r.addHangingMessage(ctx, sentMsg.MessageID, msg.From.UserName); err != nil {
-				return err
+				return false, err
 			}
 		}
-		return nil
+		return true, nil
 	}
 
 	// ignore for now, but maybe the bot should respond with a confused message
-	return nil
+	return false, nil
 }
 
 func (r *Onboarder) greeting(fromUserName string) string {
