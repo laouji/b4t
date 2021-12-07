@@ -136,7 +136,6 @@ func (r *Onboarder) handleCallback(ctx context.Context, update telegram.Update) 
 	if callback == nil {
 		return nil
 	}
-	//conversationKey := conversationKey(callback.Message.ReplyToMessage)
 	log.Printf("CALLBACK msg: %+v", callback.Message)
 	log.Printf("CALLBACK reply: %+v", callback.Message.ReplyToMessage)
 
@@ -183,8 +182,7 @@ func (r *Onboarder) handleReply(ctx context.Context, msg *telegram.Message) erro
 	}
 
 	if isHanging {
-		conversationKey := conversationKey(msg)
-		answers, err := r.getAnswers(ctx, conversationKey)
+		answers, err := r.getAnswers(ctx, msg.From.UserName)
 		if err != nil {
 			return err
 		}
@@ -194,19 +192,25 @@ func (r *Onboarder) handleReply(ctx context.Context, msg *telegram.Message) erro
 		var reply telegram.MessageConfig
 		if len(answers) < len(r.questions) {
 			// not all questions have been asked, proceed to next
-			r.setAnswer(ctx, conversationKey, msg.Text)
+			r.setAnswer(ctx, msg.From.UserName, msg.Text)
 			answers = append(answers, msg.Text)
 
 			log.Printf("LOGGED ANSWER: %s (from %s) to QUESTION: %s (from %s)", msg.Text, msg.From.UserName, gotReply.Text, gotReply.From.UserName)
-			reply = telegram.NewMessage(msg.Chat.ID, r.questions[len(answers)])
-			reply.ReplyToMessageID = msg.MessageID
-			reply.ReplyMarkup = telegram.ForceReply{ForceReply: true, Selective: true}
-			shouldAddHanging = true
+
+			// check if this is the last question
+			if len(answers) >= len(r.questions) {
+				reply = telegram.NewMessage(msg.Chat.ID, onboarderConvoEnd)
+				r.setMembershipPending(ctx, gotReply.From.UserName)
+			} else {
+				shouldAddHanging = true
+				reply = telegram.NewMessage(msg.Chat.ID, r.questions[len(answers)])
+				reply.ReplyToMessageID = msg.MessageID
+				reply.ReplyMarkup = telegram.ForceReply{ForceReply: true, Selective: true}
+			}
 
 			r.removeHangingMessage(ctx, gotReply.MessageID)
 		} else {
-			// all questions have been asked. can end convo
-			reply = telegram.NewMessage(msg.Chat.ID, onboarderConvoEnd)
+			// all questions have been asked. can maybe give a nice reply
 		}
 		sentMsg, err := r.client.Send(reply)
 		if err != nil {
