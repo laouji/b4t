@@ -2,17 +2,22 @@ package reaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
+
+	redis "github.com/go-redis/redis/v8"
 )
 
 var (
-	onboarderKeyHangingMessages = "b4t:onboarder:hanging_messages:%d"
-	//onboarderKeyConversations   = "b4t:onboarder:conversations"
-	onboarderKeyAnswers = "b4t:onboarder:answers:%s"
+	onboarderKeyHangingMessages = "b4t:onboarder:hanging_messages:%d:%d" // channel:message_id
+
+	onboarderKeyAnswers           = "b4t:onboarder:answers:%s"            // username
+	onboarderKeyMembershipPending = "b4t:onboarder:membership-pending:%s" // username
 )
 
 func (r *Onboarder) addHangingMessage(ctx context.Context, messageID int, val string) error {
-	key := fmt.Sprintf(onboarderKeyHangingMessages, messageID)
+	key := fmt.Sprintf(onboarderKeyHangingMessages, r.groupChat.ID, messageID)
 	err := r.rdb.Set(ctx, key, val, r.expiry).Err()
 	if err != nil {
 		return err
@@ -21,7 +26,7 @@ func (r *Onboarder) addHangingMessage(ctx context.Context, messageID int, val st
 }
 
 func (r *Onboarder) removeHangingMessage(ctx context.Context, messageID int) error {
-	key := fmt.Sprintf(onboarderKeyHangingMessages, messageID)
+	key := fmt.Sprintf(onboarderKeyHangingMessages, r.groupChat.ID, messageID)
 	err := r.rdb.Del(ctx, onboarderKeyHangingMessages, key).Err()
 	if err != nil {
 		return err
@@ -30,9 +35,9 @@ func (r *Onboarder) removeHangingMessage(ctx context.Context, messageID int) err
 }
 
 func (r *Onboarder) isHangingMessage(ctx context.Context, messageID int) (exists bool, err error) {
-	key := fmt.Sprintf(onboarderKeyHangingMessages, messageID)
+	key := fmt.Sprintf(onboarderKeyHangingMessages, r.groupChat.ID, messageID)
 	val, err := r.rdb.Get(ctx, key).Result()
-	if err != nil {
+	if err != nil && !errors.Is(err, redis.Nil) {
 		return false, err
 	}
 	return val != "", nil
@@ -47,38 +52,11 @@ func (r *Onboarder) userFromMessageID(ctx context.Context, messageID int) (val s
 	return val, nil
 }
 
-//func (r *Onboarder) hasConversation(
-//	ctx context.Context,
-//	conversationKey string,
-//) (isMember bool, err error) {
-//	isMember, err = r.rdb.SIsMember(ctx, onboarderKeyConversations, conversationKey).Result()
-//	if err != nil {
-//		return false, err
-//	}
-//	log.Printf("CHECKED KEY %s: %t", conversationKey, isMember)
-//	return isMember, nil
-//}
-//
-//func (r *Onboarder) addConversation(
-//	ctx context.Context,
-//	conversationKey string,
-//) error {
-//	if _, err := r.rdb.SAdd(
-//		ctx,
-//		onboarderKeyConversations,
-//		conversationKey,
-//	).Result(); err != nil {
-//		return err
-//	}
-//	log.Printf("SET KEY %s", conversationKey)
-//	return nil
-//}
-
 func (r *Onboarder) getAnswers(
 	ctx context.Context,
-	conversationKey string,
+	username string,
 ) (answers []string, err error) {
-	key := fmt.Sprintf(onboarderKeyAnswers, conversationKey)
+	key := fmt.Sprintf(onboarderKeyAnswers, username)
 	answers, err = r.rdb.LRange(ctx, key, 0, -1).Result()
 	if err != nil {
 		return nil, err
@@ -88,11 +66,34 @@ func (r *Onboarder) getAnswers(
 
 func (r *Onboarder) setAnswer(
 	ctx context.Context,
-	conversationKey string,
+	username string,
 	answer string,
 ) error {
-	key := fmt.Sprintf(onboarderKeyAnswers, conversationKey)
+	key := fmt.Sprintf(onboarderKeyAnswers, username)
 	if err := r.rdb.RPush(ctx, key, answer).Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Onboarder) getMembershipPending(
+	ctx context.Context,
+	username string,
+) (bool, error) {
+	key := fmt.Sprintf(onboarderKeyMembershipPending, username)
+	res, err := r.rdb.Get(ctx, key).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return false, err
+	}
+	return res != "", nil
+}
+
+func (r *Onboarder) setMembershipPending(
+	ctx context.Context,
+	username string,
+) error {
+	key := fmt.Sprintf(onboarderKeyMembershipPending, username)
+	if err := r.rdb.Set(ctx, key, "1", time.Duration(0)).Err(); err != nil {
 		return err
 	}
 	return nil
